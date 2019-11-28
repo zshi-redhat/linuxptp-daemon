@@ -27,9 +27,10 @@ type ProcessManager struct {
 }
 
 type ptpProcess struct {
-	name	string
-	exitCh	chan bool
-	cmd	*exec.Cmd
+	name		string
+	exitCh		chan bool
+	cmd		*exec.Cmd
+	messageChannel	chan Message
 }
 
 // LinuxPTPUpdate controls whether to update linuxPTP conf
@@ -75,11 +76,17 @@ func New(
 
 // Run in a for loop to listen for any LinuxPTPConfUpdate changes
 func (dn *Daemon) Run() {
+	// initialize message channel
+	msgChan := make(chan Message)
+
+	// initialize Parser goroutine to analyze linuxptp process logs
+	go NewParser(dn.nodeName, dn.namespace, dn.ptpUpdate, dn.stopCh, msgChan).Run()
+
 	processManager := &ProcessManager{}
 	for {
 		select {
 		case <-dn.ptpUpdate.UpdateCh:
-			err := applyNodePTPProfile(processManager, dn.ptpUpdate.NodeProfile)
+			err := applyNodePTPProfile(processManager, msgChan, dn.ptpUpdate.NodeProfile)
 			if err != nil {
 				glog.Errorf("linuxPTP apply node profile failed: %v", err)
 			}
@@ -103,7 +110,7 @@ func printWhenNotNil(p *string, description string) {
 	}
 }
 
-func applyNodePTPProfile(pm *ProcessManager, nodeProfile *ptpv1.PtpProfile) error {
+func applyNodePTPProfile(pm *ProcessManager, mc chan Message, nodeProfile *ptpv1.PtpProfile) error {
 	glog.Infof("in applyNodePTPProfile")
 
 	glog.Infof("updating NodePTPProfile to:")
@@ -139,7 +146,8 @@ func applyNodePTPProfile(pm *ProcessManager, nodeProfile *ptpv1.PtpProfile) erro
 		pm.process = append(pm.process, &ptpProcess{
 			name: "phc2sys",
 			exitCh: make(chan bool),
-			cmd: phc2sysCreateCmd(nodeProfile)})
+			cmd: phc2sysCreateCmd(nodeProfile),
+			messageChannel: mc})
 	} else {
 		glog.Infof("applyNodePTPProfile: not starting phc2sys, phc2sysOpts is empty")
 	}
@@ -148,7 +156,8 @@ func applyNodePTPProfile(pm *ProcessManager, nodeProfile *ptpv1.PtpProfile) erro
 		pm.process = append(pm.process, &ptpProcess{
 			name: "ptp4l",
 			exitCh: make(chan bool),
-			cmd: ptp4lCreateCmd(nodeProfile)})
+			cmd: ptp4lCreateCmd(nodeProfile),
+			messageChannel: mc})
 	} else {
 		glog.Infof("applyNodePTPProfile: not starting ptp4l, ptp4lOpts or interface is empty")
 	}
@@ -202,6 +211,12 @@ func cmdRun(p *ptpProcess) {
 	go func() {
 		for scanner.Scan() {
 			fmt.Printf("%s\n", scanner.Text())
+			msg := Message{
+				Name: p.name,
+				Type: p.name,
+				Content: scanner.Text(),
+			}
+			p.messageChannel <- msg
 		}
 		done <- struct{}{}
 	}()
