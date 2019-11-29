@@ -22,8 +22,9 @@ import (
 )
 
 type cliParams struct {
-	updateInterval	int
-	profileDir	string
+	updateInterval		int
+	profileDir		string
+	metricsListenAddress	string
 }
 
 // Parse Command line flags
@@ -32,6 +33,8 @@ func flagInit(cp *cliParams) {
 		"Interval to update PTP status")
         flag.StringVar(&cp.profileDir, "linuxptp-profile-path", config.DefaultProfilePath,
 		"profile to start linuxptp processes")
+	flag.StringVar(&cp.metricsListenAddress, "metrics-listen-address", config.DefaultMetricsListenAddress,
+		"metrics server listen address")
 }
 
 
@@ -42,6 +45,7 @@ func main() {
 
 	glog.Infof("resync period set to: %d [s]", cp.updateInterval)
 	glog.Infof("linuxptp profile path set to: %s", cp.profileDir)
+	glog.Infof("metrics listen address set to: %s", cp.metricsListenAddress)
 
 	cfg, err := config.GetKubeConfig()
 	if err != nil {
@@ -104,6 +108,9 @@ func main() {
 		ptpConfUpdate,
 		stopCh,
 	).Run()
+
+	// start metrics sever
+	daemon.StartHTTPMetricServer(cp.metricsListenAddress)
 
 	tickerPull := time.NewTicker(time.Second * time.Duration(cp.updateInterval))
 	defer tickerPull.Stop()
