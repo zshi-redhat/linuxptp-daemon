@@ -27,8 +27,11 @@ spec:
         securityContext:
           privileged: true
         image: openshift.io/linuxptp-daemon
-        command: [ "/bin/bash", "-c", "--" ]
-        args: [ "/usr/local/bin/ptp --alsologtostderr" ]
+        command:
+        - /usr/local/bin/ptp
+        args:
+        - -alsologtostderr=true
+        - -metrics-listen-address=127.0.0.1:9091
         imagePullPolicy: IfNotPresent
         env:
         - name: NODE_NAME

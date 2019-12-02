@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -49,13 +50,44 @@ var (
 		}, []string{"node", "network"})
 )
 
-func setPtp4lRootMeanSquareValue(node string, ptpnetwork string, value int) {
+func setPtp4lRootMeanSquareValue(node string, ptpnetwork string, value int64) {
 	Ptp4lRootMeanSquareValue.With(prometheus.Labels{
-		"node": node,"network": ptpnetwork}).Set(float64(value))
+		"node": node,"network": ptpnetwork}).Set(value)
 }
 
-func updatePtp4lMetrics(node string, ptpnetwork string, value int) {
+func updatePtp4lMetrics(node string, ptpnetwork string, value int64) {
 	setPtp4lRootMeanSquareValue(node, ptpnetwork, value)
+}
+
+func parsePtp4lMessage(msg Message) (int64, int64, int64) {
+	var err error
+	var offset, freq, delay int64
+	var offsetStr, freqStr, delayStr string
+
+	parts := strings.Split(msg.Content, " ")
+	if strings.Contains(msg.Content, "master offset") {
+		offsetStr = parts[3]
+		freqStr   = parts[6]
+		delayStr  = parts[9]
+	} else if strings.Contains(msg.Content, "rms") {
+		offsetStr   = parts[2]
+		freqStr     = parts[6]
+		delayStr    = parts[10]
+	}
+
+	if offset, err = strconv.Atoi(offsetStr); err != nil {
+		offset = 0
+	}
+
+	if freq, err = strconv.Atoi(freqStr); err != nil {
+		freq = 0
+	}
+
+	if delay, err = strconv.Atoi(delayStr); err != nil {
+		delay = 0
+	}
+
+	return offset, freq, delay
 }
 
 // NewParser is called by daemon to create new parser instance
@@ -91,6 +123,8 @@ func (ps *Parser) Run() {
 			switch msg.Type {
 			case "ptp4l":
 				glog.V(2).Infof("Parser message(%s) received: %v", msg.Type, msg.Content)
+				o, _, _ := parsePtp4lMessage(msg)
+				updatePtp4lMetrics(ps.nodeName, msg.Name, o)
 			case "phc2sys":
 				glog.V(2).Infof("Parser message(%s) received: %v", msg.Type, msg.Content)
 			}
